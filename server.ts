@@ -51,7 +51,9 @@ async function startServer() {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     try {
       const pdfData = await pdf(req.file.buffer);
-      const text = pdfData.text.substring(0, 15000);
+      // Increased to 150,000 characters to process the entire paper.
+      // Llama 3.3 70B has a 128k token context window, which easily handles ~150k characters.
+      const text = pdfData.text.substring(0, 150000);
       res.json({ success: true, text });
     } catch (error) {
       console.error('Upload error:', error);
