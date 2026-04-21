@@ -1,0 +1,6 @@
+{
+  "name": "ScholarAI",
+  "description": "An AI-powered academic research assistant for students and researchers to analyze PDFs, generate literature reviews, and manage research libraries.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

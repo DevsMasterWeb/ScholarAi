@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System application user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "email": { "type": "string" },
+        "name": { "type": "string" },
+        "plan": { "type": "string", "enum": ["FREE", "PRO", "ENTERPRISE"] },
+        "referralCode": { "type": "string" },
+        "referredBy": { "type": "string" },
+        "stripeCustomerId": { "type": "string" },
+        "stripeSubscriptionId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Paper": {
+      "title": "Paper",
+      "description": "Research paper uploaded by user.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "authors": { "type": "array", "items": { "type": "string" } },
+        "aiSummary": { "type": "string" },
+        "relevanceScore": { "type": "number" },
+        "fileUrl": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "User profile collection."
+    },
+    "/papers/{paperId}": {
+      "schema": { "$ref": "#/entities/Paper" },
+      "description": "User research papers collection."
+    }
+  }
+}
