@@ -91,6 +91,7 @@ export const PaperUploader: React.FC = () => {
       setResult(data);
 
       await updateDoc(doc(db, 'papers', paperId), {
+        title: analysis.documentTitle || fileName || 'Untitled Research',
         aiSummary: analysis.summary,
         relevanceScore: analysis.relevanceScore,
         citationApa: analysis.citationApa,

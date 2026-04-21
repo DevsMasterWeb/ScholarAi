@@ -22,7 +22,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
   }, []);
 
-  const login = async () => { await signInWithPopup(auth, provider); };
+  const login = async () => {
+    try {
+      await signInWithPopup(auth, provider);
+    } catch (error: any) {
+      if (error.code === 'auth/popup-closed-by-user') {
+        console.log('User closed the login popup before finishing.');
+      } else {
+        console.error('Login error:', error);
+        alert('Failed to log in. ' + error.message);
+      }
+    }
+  };
   const logout = async () => { await signOut(auth); };
 
   return <AuthContext.Provider value={{ user, loading, login, logout }}>{children}</AuthContext.Provider>;

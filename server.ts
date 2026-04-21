@@ -6,6 +6,7 @@ import multer from 'multer';
 import pdf from 'pdf-parse';
 import Groq from 'groq-sdk';
 import { tavily } from '@tavily/core';
+import { jsonrepair } from 'jsonrepair';
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
@@ -70,37 +71,59 @@ async function startServer() {
         messages: [
           {
             role: 'system',
-            content: `You are an expert academic research assistant. Analyse the research text and write a highly detailed, long, and well-structured literature review. 
+            content: `You are an expert academic research assistant. You MUST respond with ONLY a valid JSON object. Do not add any text, markdown formatting, or explanations before or after the JSON. Your entire response must start with '{' and end with '}'.
+
+Analyse the research text and write a highly detailed, long, and well-structured literature review. 
 
 ### MANDATORY FORMATTING RULES:
-1. STRUCTURE: Must use exactly these Markdown headers: ## Introduction, ## Key Concepts, ## Methodology, ## Findings, ## Discussion, ## Conclusion. Ensure each header is on its own line and followed by a blank line. DO NOT bold the header titles (e.g., do not use ## **Title**).
-2. FORMATTING: Use **bold** for key terms or important concepts. Use bullet points for lists, key features, or detailed points to enhance readability and structure.
-3. CITATIONS: Cite sources strictly using (Author, Year) at the VERY END of the sentence, before the period. NEVER put citations in the middle of sentences or as part of the sentence structure.
-4. BIBLIOGRAPHY: The final "Bibliography" field must ONLY list references that appear as (Author, Year) in the summary text. Any reference not cited in the text must be excluded.
-5. LENGTH: Ensure all sections are comprehensive.
+1. STRUCTURE: Must use exactly these Markdown headers: ## Introduction, ## Key Concepts, ## Methodology, ## Findings, ## Discussion, ## Conclusion. Ensure each header is on its own line and followed by a blank line. DO NOT bold the header titles.
+2. FORMATTING: Use **bold** for key terms or important concepts. Use bullet points for lists.
+3. ANTI-HALLUCINATION (AUTHORS): You MUST scan the text to extract the ACTUAL author(s) or writer(s). If no author is found, you MUST use exactly "No author mentioned". DO NOT invent or guess author names. DO NOT output placeholder names like "Author, A".
+4. ANTI-HALLUCINATION (CITATIONS & BIBLIOGRAPHY): For internal citations, ONLY use the actual authors found in the text. If the uploaded text has its own 'References' or 'Bibliography' section, extract and cite ONLY those real external works. DO NOT hallucinate, invent, or randomly generate external references or dates. 
+5. VALID JSON: You must escape all newlines as \\n and control characters inside JSON strings. DO NOT output raw newlines inside the string values.
 
 Return a structured JSON response with these exact fields:
 {
-  "summary": "Full literature review text with the required ## headers, **bold** important points, bulleted lists for clarity, and (Author, Year) end-of-sentence citations.",
+  "documentTitle": "The actual title of the research paper based on the content",
+  "summary": "Full literature review text with the required ## headers, **bold** important points, bulleted lists for clarity, and (Author, Year) end-of-sentence citations. ONLY cite the main author or actual references found in the text.",
   "keyArguments": ["argument 1", "argument 2", "argument 3"],
   "methodology": "1 paragraph describing research methods",
   "limitations": ["limitation 1", "limitation 2"],
-  "relevanceScore": 0-100,
-  "citationApa": "full APA citation",
-  "citationMla": "full MLA citation",
-  "bibliography": "A comprehensive list of ONLY those references cited in the literature review above.",
+  "relevanceScore": 85,
+  "citationApa": "full APA citation using the true author or 'No author mentioned'. DO NOT invent the author.",
+  "citationMla": "full MLA citation using the true author or 'No author mentioned'. DO NOT invent the author.",
+  "bibliography": "A comprehensive list of the main paper AND exact, real external references extracted directly from the uploaded document's own reference list. DO NOT hallucinate any references.",
   "suggestedRelatedTopics": ["topic 1", "topic 2", "topic 3"]
-}
-Respond ONLY with valid JSON. No preamble.`
+}`
           },
-          { role: 'user', content: text }
+          { role: 'user', content: `Please analyze the following academic text and output the requested JSON object:\n\n<text>\n${text}\n</text>` }
         ],
-        model: 'llama-3.3-70b-versatile',
-        response_format: { type: 'json_object' }
+        model: 'llama-3.3-70b-versatile'
       });
 
-      const analysis = JSON.parse(completion.choices[0].message.content || '{}');
-      res.json({ success: true, analysis });
+      // Extract JSON from the response, even if it has markdown or preamble
+      const content = completion.choices[0].message.content || '{}';
+      
+      try {
+        // Attempt to find the first '{' and last '}' to strip markdown backticks
+        const startIdx = content.indexOf('{');
+        const endIdx = content.lastIndexOf('}');
+        
+        if (startIdx === -1 || endIdx === -1) {
+          throw new Error("No JSON object found in response");
+        }
+        
+        const rawJsonString = content.substring(startIdx, endIdx + 1);
+        
+        // Pass the raw string through jsonrepair to auto-fix missing quotes, unescaped newlines, trailing commas, etc.
+        const repairedJsonString = jsonrepair(rawJsonString);
+        
+        const analysis = JSON.parse(repairedJsonString);
+        res.json({ success: true, analysis });
+      } catch (e) {
+        console.error("JSON Parsing failed. Raw content:", content);
+        throw e; // Cascade to the outer catch block
+      }
     } catch (error) {
       console.error('Analysis error:', error);
       res.status(500).json({ error: 'Failed to analyze' });
