@@ -8,8 +8,26 @@ import Groq from 'groq-sdk';
 import { tavily } from '@tavily/core';
 import { jsonrepair } from 'jsonrepair';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-const tvly = tavily({ apiKey: process.env.TAVILY_API_KEY });
+let _groq: Groq | null = null;
+function getGroq() {
+  if (!_groq) {
+    const key = process.env.GROQ_API_KEY;
+    if (!key) throw new Error('GROQ_API_KEY is not set');
+    _groq = new Groq({ apiKey: key });
+  }
+  return _groq;
+}
+
+let _tvly: ReturnType<typeof tavily> | null = null;
+function getTavily() {
+  if (!_tvly) {
+    const key = process.env.TAVILY_API_KEY;
+    if (!key) throw new Error('TAVILY_API_KEY is not set');
+    _tvly = tavily({ apiKey: key });
+  }
+  return _tvly;
+}
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 
 const __filename = fileURLToPath(import.meta.url);
@@ -17,7 +35,7 @@ const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
   app.use(express.json());
 
@@ -67,7 +85,8 @@ async function startServer() {
     if (!text) return res.status(400).json({ error: 'No text provided' });
 
     try {
-      const completion = await groq.chat.completions.create({
+      const groqClient = getGroq();
+      const completion = await groqClient.chat.completions.create({
         messages: [
           {
             role: 'system',
@@ -134,7 +153,8 @@ Return a structured JSON response with these exact fields:
     const { query } = req.body;
     if (!query) return res.status(400).json({ error: 'Missing query' });
     try {
-      const results = await tvly.search(query, {
+      const tvlyClient = getTavily();
+      const results = await tvlyClient.search(query, {
         searchDepth: 'advanced',
         includeAnswer: true,
         maxResults: 5
