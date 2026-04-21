@@ -24,6 +24,11 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
+  // Google Site Verification Route
+  app.get('/googlea6ad2833ec499026.html', (req, res) => {
+    res.send('google-site-verification: googlea6ad2833ec499026.html');
+  });
+
   app.post('/api/parse-pdf', upload.single('file'), async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     try {
