@@ -24,9 +24,27 @@ async function startServer() {
     res.json({ status: 'ok' });
   });
 
-  // Google Site Verification Route
+  // SEO and Verification Routes
   app.get('/googlea6ad2833ec499026.html', (req, res) => {
     res.send('google-site-verification: googlea6ad2833ec499026.html');
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    res.type('application/xml');
+    res.send(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://scholarai-bkxx.onrender.com/</loc>
+    <lastmod>2026-04-21</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>`);
+  });
+
+  app.get('/robots.txt', (req, res) => {
+    res.type('text/plain');
+    res.send(`User-agent: *\nAllow: /\n\nSitemap: https://scholarai-bkxx.onrender.com/sitemap.xml`);
   });
 
   app.post('/api/parse-pdf', upload.single('file'), async (req, res) => {
