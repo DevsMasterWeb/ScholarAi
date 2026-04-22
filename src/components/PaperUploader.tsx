@@ -99,6 +99,22 @@ export const PaperUploader: React.FC = () => {
         bibliography: analysis.bibliography
       });
 
+      // Index to Pinecone Global RAG
+      try {
+        await fetch('/api/index-document', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: paperText,
+            documentId: paperId,
+            userId: user.uid,
+            title: analysis.documentTitle || fileName || 'Untitled Research'
+          })
+        });
+      } catch (err) {
+        console.error("Failed to index for RAG", err);
+      }
+
       const today = new Date().toISOString().split('T')[0];
       await setDoc(doc(db, 'userQuotas', user.uid), { date: today, count: (quota?.count || 0) + 1 }, { merge: true });
 

@@ -3,11 +3,12 @@ import { PaperUploader } from './components/PaperUploader';
 import { LibraryList } from './components/LibraryList';
 import { SearchEngine } from './components/SearchEngine';
 import { LandingPage } from './components/LandingPage';
+import { GlobalChat } from './components/GlobalChat';
 import { useAuth } from './context/AuthContext';
-import { User as UserIcon, LogOut, ChevronDown } from 'lucide-react';
+import { User as UserIcon, LogOut, ChevronDown, MessageSquare } from 'lucide-react';
 
 export default function App() {
-  const [view, setView] = useState<'library' | 'generator' | 'search'>('library');
+  const [view, setView] = useState<'library' | 'generator' | 'search' | 'chat'>('library');
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, loading, login, logout } = useAuth();
@@ -47,6 +48,10 @@ export default function App() {
             <button onClick={() => setView('search')} className={`w-full flex items-center space-x-3 text-sm font-medium p-2 rounded-lg transition-colors ${view === 'search' ? 'bg-white border border-border shadow-sm' : 'text-slate-600 hover:bg-secondary'}`}>
               <span className={`w-2 h-2 rounded-full ${view === 'search' ? 'bg-brand' : 'border border-slate-400'}`}></span>
               <span>Web Search</span>
+            </button>
+            <button onClick={() => setView('chat')} className={`w-full flex items-center space-x-3 text-sm font-medium p-2 rounded-lg transition-colors ${view === 'chat' ? 'bg-white border border-border shadow-sm' : 'text-slate-600 hover:bg-secondary'}`}>
+              <span className={`w-2 h-2 rounded-full ${view === 'chat' ? 'bg-brand' : 'border border-slate-400'}`}></span>
+              <span>Library Chat (RAG)</span>
             </button>
             <button onClick={() => setView('generator')} className={`w-full flex items-center space-x-3 text-sm font-medium p-2 rounded-lg transition-colors ${view === 'generator' ? 'bg-white border border-border shadow-sm' : 'text-slate-600 hover:bg-secondary'}`}>
               <span className={`w-2 h-2 rounded-full ${view === 'generator' ? 'bg-brand' : 'border border-slate-400'}`}></span>
@@ -109,6 +114,7 @@ export default function App() {
             </>
           )}
           {view === 'search' && <SearchEngine />}
+          {view === 'chat' && <GlobalChat />}
           {view === 'generator' && (
             <>
               <h2 className="text-5xl font-serif font-light tracking-tight mb-8">Literature Review Gen</h2>

@@ -7,6 +7,8 @@ import pdf from 'pdf-parse';
 import Groq from 'groq-sdk';
 import { tavily } from '@tavily/core';
 import { jsonrepair } from 'jsonrepair';
+import { Pinecone } from '@pinecone-database/pinecone';
+import { GoogleGenAI } from '@google/genai';
 
 let _groq: Groq | null = null;
 function getGroq() {
@@ -26,6 +28,36 @@ function getTavily() {
     _tvly = tavily({ apiKey: key });
   }
   return _tvly;
+}
+
+let _pinecone: Pinecone | null = null;
+function getPinecone() {
+  if (!_pinecone) {
+    const key = process.env.PINECONE_API_KEY;
+    if (!key) throw new Error('PINECONE_API_KEY is not set');
+    _pinecone = new Pinecone({ apiKey: key });
+  }
+  return _pinecone;
+}
+
+let _genAI: GoogleGenAI | null = null;
+function getGenAI() {
+  if (!_genAI) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) throw new Error('GEMINI_API_KEY is not set');
+    _genAI = new GoogleGenAI({ apiKey: key });
+  }
+  return _genAI;
+}
+
+function chunkText(text: string, chunkSize = 1500, overlap = 300) {
+  const chunks: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    chunks.push(text.slice(i, i + chunkSize));
+    i += chunkSize - overlap;
+  }
+  return chunks;
 }
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
@@ -70,9 +102,9 @@ async function startServer() {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     try {
       const pdfData = await pdf(req.file.buffer);
-      // Increased to 150,000 characters to process the entire paper.
-      // Llama 3.3 70B has a 128k token context window, which easily handles ~150k characters.
-      const text = pdfData.text.substring(0, 150000);
+      // Restricted to 30,000 characters to process the paper without hitting Groq 12K RPM Free Tier limits.
+      // (1 token is roughly 4 characters. 30,000 / 4 = 7,500 tokens, leaving room for system prompt and output).
+      const text = pdfData.text.substring(0, 30000);
       res.json({ success: true, text });
     } catch (error) {
       console.error('Upload error:', error);
@@ -143,9 +175,88 @@ Return a structured JSON response with these exact fields:
         console.error("JSON Parsing failed. Raw content:", content);
         throw e; // Cascade to the outer catch block
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Analysis error:', error);
-      res.status(500).json({ error: 'Failed to analyze' });
+      if (error.status === 413 || error?.error?.code === 'rate_limit_exceeded' || error?.message?.includes('tokens per minute')) {
+        return res.status(413).json({ error: 'AI Rate Limit Reached: The document is too large for the current model limits. Please try a smaller document or try again later.' });
+      }
+      res.status(500).json({ error: error?.message || 'Failed to analyze' });
+    }
+  });
+
+  app.post('/api/index-document', async (req, res) => {
+    const { text, documentId, userId, title } = req.body;
+    if (!text || !documentId || !userId) return res.status(400).json({ error: 'Missing parameters' });
+
+    try {
+      const chunks = chunkText(text);
+      const pinecone = getPinecone();
+      const index = pinecone.index('scholarai-rag');
+      const genAI = getGenAI();
+
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        const response = await genAI.models.embedContent({
+            model: 'text-embedding-004',
+            contents: chunk,
+        });
+        
+        await (index as any).upsert([
+          {
+            id: `${documentId}-chunk-${i}`,
+            values: response.embeddings?.[0]?.values || [],
+            metadata: {
+              userId,
+              documentId,
+              title: title || 'Untitled Document',
+              text: chunk
+            }
+          }
+        ]);
+      }
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Vector index error:', error);
+      res.status(500).json({ error: 'Failed to index document' });
+    }
+  });
+
+  app.post('/api/chat-library', async (req, res) => {
+    const { query, userId } = req.body;
+    if (!query || !userId) return res.status(400).json({ error: 'Missing query or user' });
+
+    try {
+      const genAI = getGenAI();
+      const queryEmbed = await genAI.models.embedContent({
+        model: 'text-embedding-004',
+        contents: query,
+      });
+
+      const pinecone = getPinecone();
+      const index = pinecone.index('scholarai-rag');
+      
+      const searchRes = await index.query({
+        vector: queryEmbed.embeddings?.[0]?.values || [],
+        topK: 5,
+        filter: { userId: { $eq: userId } },
+        includeMetadata: true
+      });
+
+      const contexts = searchRes.matches.map(m => `[Source: ${m.metadata?.title}]\n${m.metadata?.text}`).join('\n\n---\n\n');
+
+      const groqClient = getGroq();
+      const completion = await groqClient.chat.completions.create({
+        messages: [
+          { role: 'system', content: `You are an expert academic assistant. Using ONLY the provided context blocks below, answer the user's question. If the answer is not in the context, politely state that you cannot answer it based on their uploaded library. Always cite your specific sources inline using the [Source: Title] provided in the context.\n\n<Context>\n${contexts}\n</Context>` },
+          { role: 'user', content: query }
+        ],
+        model: 'llama-3.3-70b-versatile'
+      });
+
+      res.json({ success: true, answer: completion.choices[0].message.content });
+    } catch (error) {
+      console.error('RAG search error:', error);
+      res.status(500).json({ error: 'Failed to search library' });
     }
   });
 
