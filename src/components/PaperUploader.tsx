@@ -6,6 +6,8 @@ import { collection, doc, getDoc, setDoc, addDoc, updateDoc, serverTimestamp } f
 export const PaperUploader: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [indexing, setIndexing] = useState(false);
+  const [indexError, setIndexError] = useState<string | null>(null);
   const [paperId, setPaperId] = useState<string | null>(null);
   const [paperText, setPaperText] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -52,6 +54,13 @@ export const PaperUploader: React.FC = () => {
         method: 'POST',
         body: formData,
       });
+
+      const contentType = response.headers.get("content-type");
+      if (!contentType || contentType.indexOf("application/json") === -1) {
+        const errorText = await response.text();
+        console.error('Raw server response:', errorText);
+        throw new Error(`Server returned non-JSON response (${response.status}). The document might be too large or complex for the parser.`);
+      }
 
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Request failed');
@@ -100,8 +109,10 @@ export const PaperUploader: React.FC = () => {
       });
 
       // Index to Pinecone Global RAG
+      setIndexing(true);
+      setIndexError(null);
       try {
-        await fetch('/api/index-document', {
+        const indexRes = await fetch('/api/index-document', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -111,8 +122,23 @@ export const PaperUploader: React.FC = () => {
             title: analysis.documentTitle || fileName || 'Untitled Research'
           })
         });
-      } catch (err) {
+        
+        const contentType = indexRes.headers.get("content-type");
+        if (!contentType || contentType.indexOf("application/json") === -1) {
+           const errorText = await indexRes.text();
+           console.error('Indexing raw response:', errorText);
+           throw new Error("Indexing service timing out. Your library will sync in the background.");
+        }
+
+        if (!indexRes.ok) {
+           const indexData = await indexRes.json();
+           throw new Error(indexData.error || 'Failed to index');
+        }
+      } catch (err: any) {
         console.error("Failed to index for RAG", err);
+        setIndexError("Paper was analyzed but library indexing failed. Search might be unavailable for this document.");
+      } finally {
+        setIndexing(false);
       }
 
       const today = new Date().toISOString().split('T')[0];
@@ -186,7 +212,17 @@ export const PaperUploader: React.FC = () => {
             <h4 className="font-semibold text-sm text-slate-700">Bibliography</h4>
             <p className="text-sm text-slate-600 leading-relaxed whitespace-pre-line">{result.analysis.bibliography}</p>
           </div>
-          <button onClick={() => { setPaperId(null); setResult(null); }} className="w-full mt-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">
+          {indexError && (
+            <div className="bg-amber-50 border border-amber-100 p-3 rounded-lg text-xs text-amber-700">
+              {indexError}
+            </div>
+          )}
+          {indexing && (
+            <div className="bg-brand/5 border border-brand/10 p-3 rounded-lg text-xs text-brand animate-pulse">
+              <strong>Finalizing Library Indexing...</strong> Please wait about 30 seconds before using Library Chat for this document.
+            </div>
+          )}
+          <button onClick={() => { setPaperId(null); setResult(null); setIndexError(null); }} className="w-full mt-4 py-2 bg-slate-100 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-200">
             Review another paper
           </button>
         </div>

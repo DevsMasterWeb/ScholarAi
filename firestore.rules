@@ -1,23 +1,71 @@
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny all
+    // 0. Global Safety Net
     match /{document=**} {
       allow read, write: if false;
     }
 
+    // 3. Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // --- Collections ---
+
+    // User Profiles
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
     }
 
+    // User Quotas for Generative features
     match /userQuotas/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
     }
 
+    // Research Papers
     match /papers/{paperId} {
-      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      function isValidPaper(data) {
+        return data.userId == request.auth.uid &&
+               data.title is string && data.title.size() <= 500 &&
+               (data.get('text', '') is string);
+      }
+
+      // Allow listing papers that belong to the user
+      allow list: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Allow getting a specific paper if user owns it
+      allow get: if isSignedIn() && isValidId(paperId) && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn() && isValidId(paperId) && isValidPaper(incoming()) && (
+        incoming().keys().hasAll(['userId', 'title', 'text', 'createdAt'])
+      );
+
+      allow update: if isSignedIn() && isValidId(paperId) && 
+                      existing().userId == request.auth.uid &&
+                      incoming().userId == request.auth.uid && (
+                        // Standard update allowed (tags, notes, etc.)
+                        true
+                      );
+
+      allow delete: if isSignedIn() && isValidId(paperId) && existing().userId == request.auth.uid;
     }
   }
 }
